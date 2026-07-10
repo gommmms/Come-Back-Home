@@ -308,7 +308,7 @@ canvas.width = W; canvas.height = H;
 // ── CONSTANTS ──
 const COLS = [W*0.30, W*0.5, W*0.70];
 const GROUND_Y = H * 0.72;
-const BASE_SPEED = 7.2; // fast from the start — quick failure hooks curiosity
+const BASE_SPEED = 6.1; // fast from the start, but a touch more controllable
 const GRAVITY = 1.05;
 const JUMP_V1 = -20.5;
 const JUMP_V2 = -17;
@@ -317,10 +317,10 @@ const DOUBLE_TAP_WINDOW = 320;
 // ── TRANSPORT STAGE PROGRESSION ──
 const STAGES = [
   { name:'도보 출근길',  icon:'🚶', threshold:0,    speedMul:1.00, sky:['#ff9d5c','#ffcf7a','#2b3a55'], ground:'#3a3f4d', decor:'building' },
-  { name:'자전거 라이딩', icon:'🚲', threshold:450,  speedMul:1.12, sky:['#8fd3ff','#c9f2ff','#2f5d3a'], ground:'#2f5d3a', decor:'tree' },
-  { name:'버스 환승',    icon:'🚌', threshold:1000, speedMul:1.24, sky:['#5b7bdb','#93a8e8','#22262f'], ground:'#22262f', decor:'building2' },
-  { name:'지하철 질주',  icon:'🚇', threshold:1750, speedMul:1.4,  sky:['#141826','#1c2436','#0a0c14'], ground:'#151822', decor:'tunnel' },
-  { name:'퇴근 비행',    icon:'✈️', threshold:2700, speedMul:1.6,  sky:['#ff8fb0','#ffd9a0','#8fc7ff'], ground:null,      decor:'cloud' },
+  { name:'자전거 라이딩', icon:'🚲', threshold:450,  speedMul:1.08, sky:['#8fd3ff','#c9f2ff','#2f5d3a'], ground:'#2f5d3a', decor:'tree' },
+  { name:'버스 환승',    icon:'🚌', threshold:1000, speedMul:1.16, sky:['#5b7bdb','#93a8e8','#22262f'], ground:'#22262f', decor:'building2' },
+  { name:'지하철 질주',  icon:'🚇', threshold:1750, speedMul:1.26, sky:['#141826','#1c2436','#0a0c14'], ground:'#151822', decor:'tunnel' },
+  { name:'퇴근 비행',    icon:'✈️', threshold:2700, speedMul:1.4,  sky:['#ff8fb0','#ffd9a0','#8fc7ff'], ground:null,      decor:'cloud' },
 ];
 let stageIdx = 0;
 
@@ -711,8 +711,6 @@ function checkMissions() {
 // ══ DRAW PLAYER (chibi in a plain t-shirt + stage vehicle cues) ══
 function drawPlayer() {
   const px = player.x, py = GROUND_Y - player.jumpY;
-  const legSwing = player.airborne ? 0 : Math.sin(player.legPhase)*10;
-  const armSwing = player.airborne ? -14 : Math.sin(player.legPhase+Math.PI)*10;
 
   ctx.save();
   ctx.translate(px, py);
@@ -726,35 +724,16 @@ function drawPlayer() {
   ctx.fill();
   ctx.restore();
 
-  // stage vehicle cues (behind character)
-  if (STAGES[stageIdx].decor==='tree') { // bike
-    ctx.save();
-    ctx.strokeStyle = '#333'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(-16, 10, 13, 0, Math.PI*2); ctx.stroke();
-    ctx.beginPath(); ctx.arc(16, 10, 13, 0, Math.PI*2); ctx.stroke();
-    ctx.restore();
-  } else if (STAGES[stageIdx].decor==='building2') { // bus frame
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth=3;
-    ctx.strokeRect(-46,-70,92,110);
-    ctx.restore();
-  } else if (STAGES[stageIdx].decor==='tunnel') { // subway pole
-    ctx.save();
-    ctx.strokeStyle = 'rgba(200,220,255,0.35)'; ctx.lineWidth=5;
-    ctx.beginPath(); ctx.moveTo(30,-80); ctx.lineTo(30,20); ctx.stroke();
-    ctx.restore();
-  } else if (STAGES[stageIdx].decor==='cloud') { // wings/contrail
-    ctx.save();
-    ctx.fillStyle='rgba(255,255,255,0.55)';
-    ctx.beginPath(); ctx.ellipse(-34,4,26,8,0.3,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(34,4,26,8,-0.3,0,Math.PI*2); ctx.fill();
-    ctx.restore();
-  }
+  // stage transport — wrapped around the player on all four sides
+  const legAmp = stageIdx===0 ? 10 : stageIdx===1 ? 8 : 2;
+  const armAmp = stageIdx===0 ? 10 : stageIdx===1 ? 6 : 2;
+  drawVehicleBehind(stageIdx);
 
   // legs
+  const legSwing2 = player.airborne ? 0 : Math.sin(player.legPhase)*legAmp;
   ctx.strokeStyle='#2c3e50'; ctx.lineWidth=8; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(-8,20); ctx.lineTo(-8+legSwing*0.6, 42); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(8,20); ctx.lineTo(8-legSwing*0.6, 42); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-8,20); ctx.lineTo(-8+legSwing2*0.6, 42); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(8,20); ctx.lineTo(8-legSwing2*0.6, 42); ctx.stroke();
 
   // body (plain white short-sleeve tee)
   ctx.fillStyle = invincible>0 ? '#bfe9ff' : '#ffffff';
@@ -775,9 +754,10 @@ function drawPlayer() {
   ctx.fillText('플레인', 0, -4);
 
   // arms
+  const armSwing2 = player.airborne ? -14 : Math.sin(player.legPhase+Math.PI)*armAmp;
   ctx.strokeStyle='#f4c896'; ctx.lineWidth=6; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(-19,-12); ctx.lineTo(-19+armSwing*0.5, 8); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(19,-12); ctx.lineTo(19-armSwing*0.5, 8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-19,-12); ctx.lineTo(-19+armSwing2*0.5, 8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(19,-12); ctx.lineTo(19-armSwing2*0.5, 8); ctx.stroke();
 
   // head
   ctx.fillStyle='#f4c896';
@@ -794,7 +774,117 @@ function drawPlayer() {
   ctx.strokeStyle='#8a5a3a'; ctx.lineWidth=1.6;
   ctx.beginPath(); ctx.arc(0,-36,4,0.15*Math.PI,0.85*Math.PI); ctx.stroke();
 
+  drawVehicleFront(stageIdx);
+
   ctx.restore();
+}
+
+// Vehicle parts drawn BEHIND the character body: covers back / left / right sides
+function drawVehicleBehind(idx) {
+  ctx.save();
+  if (idx===1) { // 자전거 — wheels (left/right) + frame (back)
+    ctx.strokeStyle='#333'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.arc(-30,34,15,0,Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(30,34,15,0,Math.PI*2); ctx.stroke();
+    ctx.fillStyle='#c0c6cf';
+    ctx.beginPath(); ctx.arc(-30,34,3,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(30,34,3,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#8a5a2a'; ctx.lineWidth=5; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-30,34); ctx.lineTo(-4,4); ctx.lineTo(30,34); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-4,4); ctx.lineTo(-2,-14); ctx.stroke(); // seat post (back)
+    ctx.fillStyle='#222';
+    ctx.fillRect(-10,-18,16,6); // seat
+  } else if (idx===2) { // 버스 — body wraps back/left/right, lights front/back
+    const g = ctx.createLinearGradient(-52,-86,52,40);
+    g.addColorStop(0,'#ffce3d'); g.addColorStop(1,'#ff9f1c');
+    ctx.fillStyle = g;
+    roundRect(-52,-86,104,124,16); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.fillStyle='#2b3a55';
+    ctx.fillRect(-52,-16,104,10); // livery stripe
+    // wheels (left/right, at bottom)
+    ctx.fillStyle='#1c1c1c';
+    ctx.beginPath(); ctx.arc(-36,40,11,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(36,40,11,0,Math.PI*2); ctx.fill();
+    // headlights (front/top) & taillights (back/bottom)
+    ctx.fillStyle='#fff6c9';
+    ctx.beginPath(); ctx.ellipse(-44,-80,6,4,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(44,-80,6,4,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#ff4d4d';
+    ctx.beginPath(); ctx.ellipse(-44,34,5,4,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(44,34,5,4,0,0,Math.PI*2); ctx.fill();
+    // side mirrors (left/right)
+    ctx.fillStyle='#2b3a55';
+    ctx.fillRect(-60,-34,9,7);
+    ctx.fillRect(51,-34,9,7);
+  } else if (idx===3) { // 지하철 — doors left/right, ceiling front, floor back
+    ctx.fillStyle='rgba(210,220,235,0.9)';
+    roundRect(-52,-88,20,132,4); ctx.fill();
+    roundRect(32,-88,20,132,4); ctx.fill();
+    ctx.fillStyle='#ffcc30';
+    ctx.fillRect(-52,-88,20,5);
+    ctx.fillRect(32,-88,20,5);
+    ctx.strokeStyle='rgba(120,150,190,0.7)'; ctx.lineWidth=2;
+    ctx.strokeRect(-52,-88,20,132);
+    ctx.strokeRect(32,-88,20,132);
+    // ceiling bar (front) + strap
+    ctx.strokeStyle='rgba(200,220,255,0.55)'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(-40,-88); ctx.lineTo(40,-88); ctx.stroke();
+    // subway line badge (back/floor)
+    ctx.fillStyle='#3ddc84';
+    ctx.beginPath(); ctx.arc(0,44,9,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.font='bold 10px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('2',0,44);
+  } else if (idx===4) { // 비행기 — fuselage back, wings left/right, nose front
+    ctx.fillStyle='rgba(235,240,248,0.92)';
+    ctx.beginPath();
+    ctx.ellipse(0,-16,30,74,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(120,140,170,0.6)'; ctx.lineWidth=2; ctx.stroke();
+    // wings (left/right)
+    ctx.fillStyle='rgba(210,220,235,0.95)';
+    ctx.beginPath(); ctx.moveTo(-26,4); ctx.lineTo(-78,26); ctx.lineTo(-24,26); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(26,4); ctx.lineTo(78,26); ctx.lineTo(24,26); ctx.closePath(); ctx.fill();
+    // tail fin (back)
+    ctx.beginPath(); ctx.moveTo(-10,50); ctx.lineTo(0,80); ctx.lineTo(10,50); ctx.closePath(); ctx.fill();
+    // engines under wings
+    ctx.fillStyle='#8fa6c9';
+    ctx.beginPath(); ctx.ellipse(-56,26,8,5,0,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(56,26,8,5,0,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// Vehicle parts drawn IN FRONT of the character: reinforces the "front" side
+function drawVehicleFront(idx) {
+  ctx.save();
+  if (idx===1) { // 자전거 핸들바
+    ctx.strokeStyle='#222'; ctx.lineWidth=5; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-20,-4); ctx.lineTo(20,-4); ctx.stroke();
+    ctx.fillStyle='#111';
+    ctx.beginPath(); ctx.arc(-20,-4,4,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(20,-4,4,0,Math.PI*2); ctx.fill();
+  } else if (idx===2) { // 버스 창틀(전면 유리)
+    ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=3;
+    roundRect(-30,-70,60,58,10); ctx.stroke();
+  } else if (idx===3) { // 지하철 손잡이 (전면)
+    ctx.strokeStyle='rgba(220,230,245,0.85)'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(22,-88); ctx.lineTo(22,-46); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(22,-40,7,9,0,0,Math.PI*2); ctx.stroke();
+  } else if (idx===4) { // 비행기 조종석 유리 (전면)
+    ctx.fillStyle='rgba(140,200,255,0.35)';
+    ctx.beginPath(); ctx.ellipse(0,-70,14,16,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=2; ctx.stroke();
+  }
+  ctx.restore();
+}
+function roundRect(x,y,w,h,r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
 }
 
 function drawObstacle(o) {
@@ -853,8 +943,8 @@ function gameLoop() {
 
   if (state==='play') {
     // speed ramps up quickly then eases
-    speed = (BASE_SPEED + Math.min(6.5, score*0.0022)) * STAGES[stageIdx].speedMul * (feverActive?1.35:1);
-    if (dashDuration>0) speed *= 1.4;
+    speed = (BASE_SPEED + Math.min(5.0, score*0.0016)) * STAGES[stageIdx].speedMul * (feverActive?1.22:1);
+    if (dashDuration>0) speed *= 1.28;
 
     // distance/score
     const scoreMul = (ownedItems['idcard'] && activeItem==='idcard') ? 2 : 1;
