@@ -295,10 +295,12 @@ canvas { display:block; width:100%; height:100%; }
       <div class="routePreview">
         <span>🚶</span>→<span>🚲</span>→<span>🚌</span>→<span>🚇</span>→<span>✈️</span>
       </div>
+      <div style="color:rgba(255,255,255,0.45);font-size:12px;margin-top:14px;font-weight:700;" id="playCountLine"></div>
       <div class="howto">
         ◀ ▶ 버튼 → 좌우 이동 (같은 방향 2연타 → 한번에 두 칸 슬라이드)<br>
         ⬆ 점프 버튼 → 장애물 회피, 공중에서 한번 더 누르면 2단 점프<br>
-        🏃 질주 버튼 → 짧은 시간 무적 돌파<br>
+        🏃 질주 버튼 → 짧은 시간 무적 돌파 (간식 10개 모으면 자동 발동!)<br>
+        아슬아슬하게 점프로 피하면 보너스 간식 획득!<br>
         멀리 갈수록 이동수단이 업그레이드 됩니다!
       </div>
     </div>
@@ -381,6 +383,7 @@ const DASH_COOLMAX = 150;
 let dashChargeCount = 0;      // 간식을 모을 때마다 쌓이는 질주 충전 게이지 (10개마다 자동 발동)
 const DASH_CHARGE_NEED = 10;
 let dashColor = '#7fd8ff';    // 질주 연출 색상 (수동=시안, 자동=골드로 구분)
+let dashKind = 'manual';      // 'manual' | 'auto' — 질주 발동 방식 구분 (연출/문구 분기용)
 let dashTotalDuration = 40;   // 이번 질주의 총 지속 프레임 수 (진행률 계산용)
 let prevDashDuration = 0;     // 직전 프레임의 dashDuration (종료 시점 감지용)
 
@@ -388,10 +391,19 @@ let prevDashDuration = 0;     // 직전 프레임의 dashDuration (종료 시점
 let feverGauge=0, feverActive=false, feverTimer=0;
 const FEVER_MAX=100, FEVER_DURATION=280;
 
+// 간식비 이벤트 (재미/중독 요소: 변동 보상 - 예상치 못한 순간 큰 보상이 쏟아짐)
+let nextSnackRainScore = 550;
+let snackRainTimer = 0;
+
+// 누적 플레이 횟수 (재미/중독 요소: "이번엔 꼭 신기록" 동기부여)
+let playCount = 0;
+
 // Mission system
 const MISSION_DEFS = [
   { id:'combo5',    text:'콤보 5회 달성!',       check:()=>combo>=5,        reward:15 },
   { id:'combo10',   text:'콤보 10회!',           check:()=>combo>=10,       reward:30 },
+  { id:'combo15',   text:'콤보 15회! 미쳤다 🔥',  check:()=>combo>=15,       reward:45 },
+  { id:'combo20',   text:'콤보 20회! 전설이다!',  check:()=>combo>=20,       reward:60 },
   { id:'dist500',   text:'500m 통과!',           check:()=>score>=500,      reward:20 },
   { id:'dist1500',  text:'1500m 통과!',          check:()=>score>=1500,     reward:35 },
   { id:'snacks20',  text:'간식 20개 수집!',      check:()=>sessionCoins>=20,reward:25 },
@@ -425,12 +437,22 @@ function loadSave() {
     const s = JSON.parse(localStorage.getItem('comeBackHome')||'{}');
     totalCoins=s.coins||0; hiScore=s.hi||0;
     ownedItems=s.owned||{}; activeItem=s.active||null;
+    playCount=s.plays||0;
   } catch(e){}
 }
 function saveGame() {
-  try { localStorage.setItem('comeBackHome', JSON.stringify({coins:totalCoins, hi:hiScore, owned:ownedItems, active:activeItem})); } catch(e){}
+  try { localStorage.setItem('comeBackHome', JSON.stringify({coins:totalCoins, hi:hiScore, owned:ownedItems, active:activeItem, plays:playCount})); } catch(e){}
 }
 loadSave();
+
+function updateStartStats() {
+  const el = document.getElementById('playCountLine');
+  if (!el) return;
+  el.textContent = playCount>0
+    ? `🏃 지금까지 ${playCount}번째 도전 · 최고기록 ${hiScore}m — 이번엔 넘어보자!`
+    : '🏃 첫 퇴근길, 화이팅!';
+}
+updateStartStats();
 
 // ── TAUNT MESSAGES (game over) ──
 const TAUNTS = [
@@ -647,6 +669,19 @@ function checkStageUp() {
   }
 }
 
+// ══ 간식비 이벤트 (재미/중독 요소: 예측 불가능한 보상 폭탄) ══
+function checkSnackRain() {
+  if (score >= nextSnackRainScore) {
+    nextSnackRainScore = score + 550 + Math.random()*300;
+    triggerSnackRain();
+  }
+}
+function triggerSnackRain() {
+  snackRainTimer = 75;
+  showEventBanner('🍡🍡 간식비가 내려요! 놓치지 마세요!', 'banner-coin');
+  spawnFloatText(player.x, GROUND_Y-140, '간식비!', '#7fd8ff', 18);
+}
+
 // ══ EVENT BANNER ══
 let bannerTimer = 0;
 function showEventBanner(text, cls) {
@@ -692,16 +727,16 @@ function doJump() {
 function doDash() {
   if (state!=='play' || dashCooldown>0) return;
   dashDuration = 40; dashTotalDuration = 40; invincible = Math.max(invincible,40);
-  dashColor = '#7fd8ff';
+  dashColor = '#7fd8ff'; dashKind = 'manual';
   dashCooldown = (ownedItems['sneakers'] && activeItem==='sneakers') ? DASH_COOLMAX*0.65 : DASH_COOLMAX;
   triggerShake(8,4);
   spawnParticles(player.x, GROUND_Y-player.jumpY, '#7fd8ff', 16, 5);
-  triggerDashBang('⚡ 질주!', '#7fd8ff');
+  triggerDashBang('⚡ 수동 질주!', '#7fd8ff');
 }
 // 간식 10개를 모으면 자동으로 질주가 발동되고 게이지는 소진된다 (요청 반영: 재미 보상 요소)
 function triggerAutoDash() {
   dashDuration = 46; dashTotalDuration = 46; invincible = Math.max(invincible,46);
-  dashColor = '#ffd25a';
+  dashColor = '#ffd25a'; dashKind = 'auto';
   dashCooldown = (ownedItems['sneakers'] && activeItem==='sneakers') ? DASH_COOLMAX*0.65 : DASH_COOLMAX;
   triggerShake(12,6);
   spawnParticles(player.x, GROUND_Y-player.jumpY, '#ffd25a', 26, 6);
@@ -784,8 +819,9 @@ function resetGame() {
   player = { lane:1, x:COLS[1], targetX:COLS[1], y:GROUND_Y, jumpY:0, vy:0, jumpsUsed:0, airborne:false, anim:0, legPhase:0 };
   obstacleTimer=45; coinTimer=30;
   dashCooldown=0; dashDuration=0; invincible=0;
-  dashChargeCount=0; prevDashDuration=0; dashColor='#7fd8ff';
+  dashChargeCount=0; prevDashDuration=0; dashColor='#7fd8ff'; dashKind='manual';
   feverGauge=0; feverActive=false; feverTimer=0;
+  nextSnackRainScore=550; snackRainTimer=0;
   completedMissions = new Set();
   shakeDur=0;
   initDecor();
@@ -811,8 +847,10 @@ function triggerGameOver() {
     (isHi ? '<span class="streak">🏆 최고 기록 경신!</span><br>' : '') +
     `최고 기록: <span class="hi">${hiScore}m</span><br>` +
     `획득 간식: 🍡 ${sessionCoins} (총 ${totalCoins})<br>` +
-    `최대 콤보: <span class="streak">${maxCombo}</span>`;
+    `최대 콤보: <span class="streak">${maxCombo}</span><br>` +
+    `<span style="font-size:12px;color:rgba(255,255,255,0.45)">이번이 ${playCount}번째 도전이었어요</span>`;
   document.getElementById('gameOver').style.display='flex';
+  updateStartStats();
 }
 
 // ══ MISSIONS ══
@@ -836,7 +874,7 @@ function drawPlayer() {
 
   ctx.save();
   ctx.translate(px, py);
-  ctx.scale(0.5, 0.5); // 플레이어+교통수단 전체 크기를 절반으로 축소 (요청 반영)
+  ctx.scale(0.56, 0.56); // 플레이어 크기를 장애물/간식과 균형 있게 살짝 키움 (요청 반영: 비율 조정)
 
   // shadow
   ctx.save();
@@ -1014,7 +1052,7 @@ function drawObstacle(o) {
   ctx.save();
   // bright warning chip behind the icon so it always reads clearly against any background
   ctx.beginPath();
-  ctx.arc(o.x, o.y, 32, 0, Math.PI*2);
+  ctx.arc(o.x, o.y, 29, 0, Math.PI*2);
   ctx.fillStyle = 'rgba(255,60,40,0.22)';
   ctx.fill();
   ctx.lineWidth = 3;
@@ -1024,11 +1062,11 @@ function drawObstacle(o) {
   ctx.lineWidth = 2.5;
   ctx.strokeStyle = 'rgba(255,90,40,0.95)';
   ctx.beginPath();
-  ctx.arc(o.x, o.y, 37, 0, Math.PI*2);
+  ctx.arc(o.x, o.y, 34, 0, Math.PI*2);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  ctx.font = '50px sans-serif';
+  ctx.font = '45px sans-serif';
   ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.shadowColor='rgba(0,0,0,0.55)'; ctx.shadowBlur=8;
   // white outline pass for extra contrast, then the icon on top
@@ -1039,7 +1077,7 @@ function drawObstacle(o) {
 }
 function drawCoin(c) {
   ctx.save();
-  const R = c.golden ? 34 : 26;
+  const R = c.golden ? 30 : 23;
   // glowing golden chip behind the snack icon
   ctx.beginPath();
   ctx.arc(c.x, c.y, R, 0, Math.PI*2);
@@ -1067,7 +1105,7 @@ function drawCoin(c) {
     ctx.setLineDash([]);
   }
 
-  ctx.font = (c.golden ? 48 : 42) + 'px sans-serif';
+  ctx.font = (c.golden ? 44 : 37) + 'px sans-serif';
   ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.shadowColor='rgba(255,210,90,0.85)'; ctx.shadowBlur = c.golden ? 20 : 14;
   ctx.lineWidth = 5; ctx.strokeStyle='rgba(255,255,255,0.85)';
@@ -1108,7 +1146,7 @@ function drawDashSpeedLines() {
   }
   ctx.restore();
 }
-// 화면 전체를 감싸는 색상 글로우(비네트) - 시작에는 확 밝아지고, 끝나기 직전엔 서서히 옅어짐
+// 화면 전체를 감싸는 색상 글로우(비네트) + 테두리 링 - 수동/자동 색상으로 명확히 구분
 function drawDashVignette() {
   if (dashDuration<=0) return;
   const fadeIn = Math.min(1, (dashTotalDuration-dashDuration)/6);
@@ -1122,6 +1160,10 @@ function drawDashVignette() {
   grad.addColorStop(1, hexToRgba(dashColor, 0.4*amt*pulse));
   ctx.fillStyle = grad;
   ctx.fillRect(0,0,W,H);
+  // 화면 테두리를 감싸는 두꺼운 링 - 질주 종류(수동/자동)에 따라 색이 달라 한눈에 구분됨
+  ctx.strokeStyle = hexToRgba(dashColor, 0.85*amt*pulse);
+  ctx.lineWidth = 16;
+  ctx.strokeRect(8,8,W-16,H-16);
   ctx.restore();
 }
 
@@ -1138,6 +1180,12 @@ function gameLoop() {
     const scoreMul = (ownedItems['idcard'] && activeItem==='idcard') ? 2 : 1;
     score += (speed*0.11) * scoreMul * (feverActive?1.5:1);
     checkStageUp();
+    checkSnackRain();
+    if (snackRainTimer>0) {
+      snackRainTimer--;
+      if (frame%6===0) spawnCoin();
+      if (snackRainTimer<=0) showEventBanner('🍡 간식비 끝!', 'banner-coin');
+    }
 
     // lane movement (smooth lerp)
     player.targetX = COLS[player.lane];
@@ -1152,7 +1200,11 @@ function gameLoop() {
     }
 
     if (invincible>0) invincible--;
-    if (dashDuration>0) dashDuration--;
+    if (dashDuration>0) {
+      dashDuration--;
+      // 질주 중 잔상 트레일 - 수동/자동 모두 지속적으로 눈에 띄는 궤적을 남겨 상태를 명확히 인지시킴
+      if (frame%2===0) spawnParticles(player.x+(Math.random()-0.5)*18, GROUND_Y-player.jumpY+8, dashColor, 2, 2);
+    }
     if (prevDashDuration>0 && dashDuration<=0) triggerDashEndEffect(); // 질주가 막 끝난 순간 감지
     prevDashDuration = dashDuration;
     if (dashCooldown>0) dashCooldown--;
@@ -1180,13 +1232,21 @@ function gameLoop() {
       const o = obstacles[i];
       o.y += speed;
       if (o.y > H+70) { obstacles.splice(i,1); continue; }
-      if (!o.hit && o.lane===player.lane && checkCol(o.x,o.y,player.x,GROUND_Y,22)) {
+      if (!o.hit && o.lane===player.lane && checkCol(o.x,o.y,player.x,GROUND_Y,19)) {
         const clearedByJump = (player.jumpY > o.clear);
         if (clearedByJump) {
           o.hit = true;
           combo++; maxCombo=Math.max(maxCombo,combo);
-          feverGauge = Math.min(FEVER_MAX, feverGauge + ((ownedItems['earphone']&&activeItem==='earphone')?6:4));
-          spawnFloatText(o.x, o.y-30, '점프!', '#7fd8ff', 13);
+          const narrow = (player.jumpY - o.clear) < 18; // 아슬아슬하게 피했는지 판정 (재미요소: 리스크 보상)
+          feverGauge = Math.min(FEVER_MAX, feverGauge + ((ownedItems['earphone']&&activeItem==='earphone')?6:4) + (narrow?3:0));
+          if (narrow) {
+            sessionCoins += 2;
+            triggerShake(4,2);
+            spawnFloatText(o.x, o.y-46, '아슬아슬! +2🍡', '#ff5aff', 14);
+            spawnParticles(o.x,o.y-20,'#ff5aff',10,3);
+          } else {
+            spawnFloatText(o.x, o.y-30, '점프!', '#7fd8ff', 13);
+          }
         } else if (invincible>0) {
           o.hit = true;
           spawnParticles(o.x,o.y,'#7fd8ff',10);
@@ -1288,7 +1348,10 @@ function gameLoop() {
       const bar = document.getElementById('dashTimerBar');
       bar.style.width = pct+'%';
       bar.style.background = dashColor;
-      document.getElementById('dashTimerLabel').style.color = dashColor;
+      const lbl = document.getElementById('dashTimerLabel');
+      lbl.style.color = dashColor;
+      lbl.style.textShadow = `0 0 10px ${dashColor}, 0 0 18px ${dashColor}`;
+      lbl.textContent = dashKind==='auto' ? '🍡 자동 질주 중!' : '⚡ 수동 질주 중!';
     } else {
       dtw.style.display = 'none';
     }
@@ -1360,6 +1423,8 @@ function buyOrEquip(item) {
 
 // ══ BUTTON EVENTS ══
 function startPlay() {
+  playCount++;
+  saveGame();
   resetGame();
   document.getElementById('startScreen').style.display='none';
   document.getElementById('gameOver').style.display='none';
