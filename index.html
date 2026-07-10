@@ -918,7 +918,7 @@ function gameLoop() {
           spawnFloatText(player.x,GROUND_Y-45,'☂️ 우산 사용!','#4df');
         } else {
           combo=0;
-          triggerGameOver(); return;
+          triggerGameOver(); break;
         }
       }
     }
