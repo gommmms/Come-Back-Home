@@ -16,10 +16,10 @@ html, body {
   width:100%; height:100%; overflow:hidden; position:relative;
   background:#05060a;
 }
-/* 16:9 stage, letterboxed & scaled to fit parent (iframe-friendly) */
+/* 16:9 -> 4:3에 가깝게 세로를 늘려 반응 시간 확보 (letterboxed & scaled to fit parent) */
 #stage {
   position:absolute; left:0; top:0;
-  width:1280px; height:720px;
+  width:1280px; height:960px;
   transform-origin:0 0;
   overflow:hidden;
   background:#000;
@@ -132,6 +132,14 @@ canvas { display:block; width:100%; height:100%; }
 #dashBtn:active { transform:scale(0.88); }
 #dashBtn.cooldown { border-color:rgba(100,100,100,0.4); background:radial-gradient(circle,rgba(40,40,40,0.8),rgba(20,20,20,0.8)); box-shadow:none; }
 #dashCoolText { font-size:9px; color:rgba(255,255,255,0.6); text-align:center; }
+#dashChargeBox {
+  position:absolute; right:30px; bottom:222px;
+  background:rgba(15,20,35,0.82); border:1.5px solid rgba(255,210,90,0.55);
+  border-radius:10px; padding:3px 9px;
+  color:#ffd25a; font-size:11px; font-weight:800; text-align:center; white-space:nowrap;
+  pointer-events:none; transition:transform 0.15s ease;
+}
+#dashChargeBox.full { transform:scale(1.25); color:#fff; border-color:#ffe75a; }
 
 /* Overlays */
 .overlay {
@@ -237,6 +245,7 @@ canvas { display:block; width:100%; height:100%; }
       <div class="ctrlBtn" id="leftBtn">◀</div>
       <div class="ctrlBtn" id="rightBtn">▶</div>
       <div class="ctrlBtn" id="jumpBtn">⬆<br><span style="font-size:12px">점프</span></div>
+      <div id="dashChargeBox">🍡 <span id="dashChargeVal">0</span>/10</div>
       <div id="dashBtn">🏃<br><span id="dashCoolText">질주</span></div>
     </div>
 
@@ -284,7 +293,7 @@ canvas { display:block; width:100%; height:100%; }
 // ═══════════════════════════════════════════════════════════
 
 // ── RESPONSIVE 16:9 STAGE SCALING (iframe-friendly, no scroll) ──
-const STAGE_W = 1280, STAGE_H = 720;
+const STAGE_W = 1280, STAGE_H = 960; // 세로를 늘려 장애물/간식이 보이고 나서 반응할 시간을 더 확보
 const stageEl = document.getElementById('stage');
 function resizeStage() {
   const root = document.getElementById('root');
@@ -331,6 +340,8 @@ let combo=0, maxCombo=0;
 let speed=BASE_SPEED, frame=0;
 let invincible=0, dashCooldown=0, dashDuration=0;
 const DASH_COOLMAX = 150;
+let dashChargeCount = 0;      // 간식을 모을 때마다 쌓이는 질주 충전 게이지 (10개마다 자동 발동)
+const DASH_CHARGE_NEED = 10;
 
 // Fever ("칼퇴 러시")
 let feverGauge=0, feverActive=false, feverTimer=0;
@@ -644,6 +655,15 @@ function doDash() {
   triggerShake(8,4);
   spawnParticles(player.x, GROUND_Y-player.jumpY, '#7fd8ff', 16, 5);
 }
+// 간식 10개를 모으면 자동으로 질주가 발동되고 게이지는 소진된다 (요청 반영: 재미 보상 요소)
+function triggerAutoDash() {
+  dashDuration = 46; invincible = Math.max(invincible,46);
+  dashCooldown = (ownedItems['sneakers'] && activeItem==='sneakers') ? DASH_COOLMAX*0.65 : DASH_COOLMAX;
+  triggerShake(12,6);
+  spawnParticles(player.x, GROUND_Y-player.jumpY, '#ffd25a', 26, 6);
+  spawnFloatText(player.x, GROUND_Y-player.jumpY-70, '🍡 자동 질주 발동!', '#ffd25a', 16);
+  showEventBanner('🍡 간식 10개 달성! 질주 자동 발동!', 'banner-fever');
+}
 
 // ══ INPUT ══
 document.getElementById('leftBtn').addEventListener('pointerdown', e=>{e.preventDefault(); moveLane(-1);});
@@ -685,7 +705,8 @@ function spawnObstacle() {
 const SNACKS = ['🍙','🍔','🍟','🥤','☕','🍕','🍩','🍿'];
 function spawnCoin() {
   const lane = Math.floor(Math.random()*3);
-  coins.push({ lane, x:COLS[lane], y:-40, icon:SNACKS[Math.floor(Math.random()*SNACKS.length)] });
+  const golden = Math.random() < 0.08; // 8% 확률로 골든 간식 (재미요소: 특별 보상)
+  coins.push({ lane, x:COLS[lane], y:-40, icon: golden ? '⭐' : SNACKS[Math.floor(Math.random()*SNACKS.length)], golden });
 }
 
 // ══ COLLISION ══
@@ -699,6 +720,7 @@ function resetGame() {
   player = { lane:1, x:COLS[1], targetX:COLS[1], y:GROUND_Y, jumpY:0, vy:0, jumpsUsed:0, airborne:false, anim:0, legPhase:0 };
   obstacleTimer=45; coinTimer=30;
   dashCooldown=0; dashDuration=0; invincible=0;
+  dashChargeCount=0;
   feverGauge=0; feverActive=false; feverTimer=0;
   completedMissions = new Set();
   shakeDur=0;
@@ -750,6 +772,7 @@ function drawPlayer() {
 
   ctx.save();
   ctx.translate(px, py);
+  ctx.scale(0.5, 0.5); // 플레이어+교통수단 전체 크기를 절반으로 축소 (요청 반영)
 
   // shadow
   ctx.save();
@@ -952,21 +975,37 @@ function drawObstacle(o) {
 }
 function drawCoin(c) {
   ctx.save();
+  const R = c.golden ? 34 : 26;
   // glowing golden chip behind the snack icon
   ctx.beginPath();
-  ctx.arc(c.x, c.y, 26, 0, Math.PI*2);
-  const g = ctx.createRadialGradient(c.x,c.y,2,c.x,c.y,26);
-  g.addColorStop(0,'rgba(255,225,140,0.55)');
-  g.addColorStop(1,'rgba(255,180,60,0.05)');
+  ctx.arc(c.x, c.y, R, 0, Math.PI*2);
+  const g = ctx.createRadialGradient(c.x,c.y,2,c.x,c.y,R);
+  if (c.golden) {
+    g.addColorStop(0,'rgba(255,245,180,0.85)');
+    g.addColorStop(1,'rgba(255,190,40,0.1)');
+  } else {
+    g.addColorStop(0,'rgba(255,225,140,0.55)');
+    g.addColorStop(1,'rgba(255,180,60,0.05)');
+  }
   ctx.fillStyle = g;
   ctx.fill();
-  ctx.lineWidth = 2.5;
+  ctx.lineWidth = c.golden ? 3 : 2.5;
   ctx.strokeStyle = 'rgba(255,255,255,0.9)';
   ctx.stroke();
 
-  ctx.font = '42px sans-serif';
+  if (c.golden) {
+    // 반짝이는 회전 점선 링으로 특별함을 강조 (재미요소)
+    ctx.setLineDash([5,5]);
+    ctx.lineDashOffset = -frame*1.5;
+    ctx.strokeStyle = 'rgba(255,225,100,0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(c.x, c.y, R+6, 0, Math.PI*2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.font = (c.golden ? 48 : 42) + 'px sans-serif';
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.shadowColor='rgba(255,210,90,0.85)'; ctx.shadowBlur=14;
+  ctx.shadowColor='rgba(255,210,90,0.85)'; ctx.shadowBlur = c.golden ? 20 : 14;
   ctx.lineWidth = 5; ctx.strokeStyle='rgba(255,255,255,0.85)';
   ctx.strokeText(c.icon, c.x, c.y);
   ctx.fillText(c.icon, c.x, c.y);
@@ -1026,7 +1065,7 @@ function gameLoop() {
       const o = obstacles[i];
       o.y += speed;
       if (o.y > H+70) { obstacles.splice(i,1); continue; }
-      if (!o.hit && o.lane===player.lane && checkCol(o.x,o.y,player.x,GROUND_Y,34)) {
+      if (!o.hit && o.lane===player.lane && checkCol(o.x,o.y,player.x,GROUND_Y,22)) {
         const clearedByJump = (player.jumpY > o.clear);
         if (clearedByJump) {
           o.hit = true;
@@ -1050,7 +1089,7 @@ function gameLoop() {
     }
 
     // update coins
-    const magnetRange = (ownedItems['magnet'] && activeItem==='magnet') ? 130 : 34;
+    const magnetRange = (ownedItems['magnet'] && activeItem==='magnet') ? 130 : 24;
     for (let i=coins.length-1;i>=0;i--) {
       const c = coins[i];
       c.y += speed;
@@ -1059,13 +1098,28 @@ function gameLoop() {
         if (Math.sqrt(dx*dx+dy*dy) < magnetRange) { c.x += dx*0.2; c.y += dy*0.2; }
       }
       if (c.y > H+50) { coins.splice(i,1); continue; }
-      if (checkCol(c.x,c.y,player.x,GROUND_Y-player.jumpY,magnetRange*0.45)) {
-        const gained = feverActive ? 2 : 1;
+      const pickRadius = magnetRange*0.45 + (c.golden?6:0);
+      if (checkCol(c.x,c.y,player.x,GROUND_Y-player.jumpY,pickRadius)) {
+        const base = c.golden ? 5 : 1;
+        const gained = feverActive ? base*2 : base;
         sessionCoins += gained;
+        dashChargeCount += gained; // 질주 자동 충전 게이지 누적
         feverGauge = Math.min(FEVER_MAX, feverGauge + (feverActive?0:((ownedItems['earphone']&&activeItem==='earphone')?4.5:3)));
-        spawnParticles(c.x,c.y,'#ffd25a',5,2);
-        spawnFloatText(c.x,c.y-14,`+${gained}🍡`,'#ffd25a',13);
+        if (c.golden) {
+          triggerShake(6,3);
+          spawnParticles(c.x,c.y,'#ffe75a',18,5);
+          spawnFloatText(c.x,c.y-18,`⭐ 골든 간식! +${gained}`,'#ffe75a',15);
+        } else {
+          spawnParticles(c.x,c.y,'#ffd25a',5,2);
+          spawnFloatText(c.x,c.y-14,`+${gained}🍡`,'#ffd25a',13);
+        }
         coins.splice(i,1);
+
+        // 간식 10개(누적)마다 질주를 자동으로 발동하고 게이지는 소진된다
+        while (dashChargeCount >= DASH_CHARGE_NEED) {
+          dashChargeCount -= DASH_CHARGE_NEED;
+          triggerAutoDash();
+        }
       }
     }
 
@@ -1109,6 +1163,8 @@ function gameLoop() {
     const dashBtn = document.getElementById('dashBtn');
     if (dashCooldown>0) { dashBtn.classList.add('cooldown'); document.getElementById('dashCoolText').textContent=`${Math.ceil(dashCooldown/60)}s`; }
     else { dashBtn.classList.remove('cooldown'); document.getElementById('dashCoolText').textContent='질주'; }
+    document.getElementById('dashChargeVal').textContent = Math.min(dashChargeCount, DASH_CHARGE_NEED);
+    document.getElementById('dashChargeBox').classList.toggle('full', dashChargeCount >= DASH_CHARGE_NEED - 1);
   }
 
   // ── DRAW ──
