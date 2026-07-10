@@ -77,6 +77,39 @@ canvas { display:block; width:100%; height:100%; }
 }
 @keyframes feverPop { from{transform:translate(-50%,-50%) scale(0.5)} to{transform:translate(-50%,-50%) scale(1)} }
 
+/* 질주 시작 순간을 명확히 알려주는 큰 팝업 텍스트 */
+#dashBang {
+  position:absolute; top:38%; left:50%; transform:translate(-50%,-50%);
+  font-size:38px; font-weight:900;
+  letter-spacing:3px; display:none;
+  white-space:nowrap;
+  animation:dashBangPop 0.4s ease;
+}
+@keyframes dashBangPop {
+  0%   { transform:translate(-50%,-50%) scale(0.4); opacity:0; }
+  35%  { transform:translate(-50%,-50%) scale(1.25); opacity:1; }
+  60%  { transform:translate(-50%,-50%) scale(1); opacity:1; }
+  100% { transform:translate(-50%,-50%) scale(1); opacity:0; }
+}
+
+/* 질주 진행 상태 표시 바 - 등장(시작)과 소멸(종료) 자체가 시작/끝 신호가 되도록 */
+#dashTimerWrap {
+  position:absolute; top:118px; left:50%; transform:translateX(-50%);
+  width:240px; text-align:center; display:none;
+}
+#dashTimerLabel {
+  display:block; font-size:12px; font-weight:900; color:#7fd8ff;
+  text-shadow:0 0 10px currentColor; margin-bottom:3px; letter-spacing:1px;
+}
+#dashTimerTrack {
+  width:100%; height:9px; border-radius:5px; overflow:hidden;
+  background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.3);
+}
+#dashTimerBar {
+  height:100%; width:100%; border-radius:5px;
+  background:#7fd8ff; transition:width 0.05s linear;
+}
+
 /* Mission popup */
 #missionPop {
   position:absolute; top:96px; left:50%; transform:translateX(-50%);
@@ -238,6 +271,11 @@ canvas { display:block; width:100%; height:100%; }
     <div id="feverLabel">칼퇴 게이지</div>
     <div id="comboBox">🔥 COMBO<br><span id="comboVal">x0</span></div>
     <div id="feverBang">⚡칼퇴 러시!⚡</div>
+    <div id="dashBang">⚡ 질주!</div>
+    <div id="dashTimerWrap">
+      <span id="dashTimerLabel">⚡ 질주 중!</span>
+      <div id="dashTimerTrack"><div id="dashTimerBar"></div></div>
+    </div>
     <div id="eventBanner"></div>
     <div id="missionPop"></div>
 
@@ -342,6 +380,9 @@ let invincible=0, dashCooldown=0, dashDuration=0;
 const DASH_COOLMAX = 150;
 let dashChargeCount = 0;      // 간식을 모을 때마다 쌓이는 질주 충전 게이지 (10개마다 자동 발동)
 const DASH_CHARGE_NEED = 10;
+let dashColor = '#7fd8ff';    // 질주 연출 색상 (수동=시안, 자동=골드로 구분)
+let dashTotalDuration = 40;   // 이번 질주의 총 지속 프레임 수 (진행률 계산용)
+let prevDashDuration = 0;     // 직전 프레임의 dashDuration (종료 시점 감지용)
 
 // Fever ("칼퇴 러시")
 let feverGauge=0, feverActive=false, feverTimer=0;
@@ -650,19 +691,42 @@ function doJump() {
 }
 function doDash() {
   if (state!=='play' || dashCooldown>0) return;
-  dashDuration = 40; invincible = Math.max(invincible,40);
+  dashDuration = 40; dashTotalDuration = 40; invincible = Math.max(invincible,40);
+  dashColor = '#7fd8ff';
   dashCooldown = (ownedItems['sneakers'] && activeItem==='sneakers') ? DASH_COOLMAX*0.65 : DASH_COOLMAX;
   triggerShake(8,4);
   spawnParticles(player.x, GROUND_Y-player.jumpY, '#7fd8ff', 16, 5);
+  triggerDashBang('⚡ 질주!', '#7fd8ff');
 }
 // 간식 10개를 모으면 자동으로 질주가 발동되고 게이지는 소진된다 (요청 반영: 재미 보상 요소)
 function triggerAutoDash() {
-  dashDuration = 46; invincible = Math.max(invincible,46);
+  dashDuration = 46; dashTotalDuration = 46; invincible = Math.max(invincible,46);
+  dashColor = '#ffd25a';
   dashCooldown = (ownedItems['sneakers'] && activeItem==='sneakers') ? DASH_COOLMAX*0.65 : DASH_COOLMAX;
   triggerShake(12,6);
   spawnParticles(player.x, GROUND_Y-player.jumpY, '#ffd25a', 26, 6);
   spawnFloatText(player.x, GROUND_Y-player.jumpY-70, '🍡 자동 질주 발동!', '#ffd25a', 16);
   showEventBanner('🍡 간식 10개 달성! 질주 자동 발동!', 'banner-fever');
+  triggerDashBang('🍡 자동 질주 발동!', '#ffd25a');
+}
+// 질주 시작을 화면 중앙에 크게 알려주는 연출 (재미요소: 시작 타이밍을 명확하게)
+function triggerDashBang(text, color) {
+  const el = document.getElementById('dashBang');
+  el.textContent = text;
+  el.style.color = color;
+  el.style.textShadow = `0 0 20px ${color}, 0 0 42px ${color}`;
+  el.style.display = 'block';
+  el.style.animation = 'none';
+  void el.offsetWidth; // 애니메이션 재시작을 위한 리플로우 트릭
+  el.style.animation = 'dashBangPop 0.4s ease';
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>{ el.style.display='none'; }, 500);
+}
+// 질주 종료 시점을 명확하게 알려주는 연출 (재미요소: 끝 타이밍을 명확하게)
+function triggerDashEndEffect() {
+  triggerShake(5,2.5);
+  spawnParticles(player.x, GROUND_Y-player.jumpY, dashColor, 12, 3);
+  spawnFloatText(player.x, GROUND_Y-player.jumpY-60, '질주 종료', dashColor, 13);
 }
 
 // ══ INPUT ══
@@ -720,7 +784,7 @@ function resetGame() {
   player = { lane:1, x:COLS[1], targetX:COLS[1], y:GROUND_Y, jumpY:0, vy:0, jumpsUsed:0, airborne:false, anim:0, legPhase:0 };
   obstacleTimer=45; coinTimer=30;
   dashCooldown=0; dashDuration=0; invincible=0;
-  dashChargeCount=0;
+  dashChargeCount=0; prevDashDuration=0; dashColor='#7fd8ff';
   feverGauge=0; feverActive=false; feverTimer=0;
   completedMissions = new Set();
   shakeDur=0;
@@ -1012,6 +1076,55 @@ function drawCoin(c) {
   ctx.restore();
 }
 
+// ══ DASH VISUAL FX (요청 반영: 질주 발동 중 시각 효과 강화) ══
+function hexToRgba(hex, a) {
+  const v = hex.replace('#','');
+  const r = parseInt(v.substring(0,2),16), g = parseInt(v.substring(2,4),16), b = parseInt(v.substring(4,6),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+// 배경 바로 위, 캐릭터/장애물 아래에 그려지는 방사형 스피드 라인 (속도감 강조)
+function drawDashSpeedLines() {
+  if (dashDuration<=0) return;
+  const fadeIn = Math.min(1, (dashTotalDuration-dashDuration)/8);   // 시작 후 8프레임 동안 서서히 등장
+  const fadeOut = Math.min(1, dashDuration/8);                       // 끝나기 8프레임 전부터 서서히 소멸
+  const amt = Math.min(fadeIn, fadeOut);
+  if (amt<=0) return;
+  ctx.save();
+  ctx.globalAlpha = 0.55*amt;
+  ctx.strokeStyle = dashColor;
+  ctx.lineCap = 'round';
+  const cx = W/2, cy = GROUND_Y*0.5;
+  const lines = 16;
+  for (let i=0;i<lines;i++) {
+    const ang = (i/lines)*Math.PI*2;
+    const spin = frame*0.015;
+    const a = ang+spin;
+    const pulse = (frame*26 + i*53) % 320;
+    const len = 70 + pulse;
+    const x1 = cx+Math.cos(a)*len,       y1 = cy+Math.sin(a)*len*0.62;
+    const x2 = cx+Math.cos(a)*(len+55),  y2 = cy+Math.sin(a)*(len+55)*0.62;
+    ctx.lineWidth = 2 + (pulse/320)*2.5;
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+  }
+  ctx.restore();
+}
+// 화면 전체를 감싸는 색상 글로우(비네트) - 시작에는 확 밝아지고, 끝나기 직전엔 서서히 옅어짐
+function drawDashVignette() {
+  if (dashDuration<=0) return;
+  const fadeIn = Math.min(1, (dashTotalDuration-dashDuration)/6);
+  const fadeOut = Math.min(1, dashDuration/10);
+  const amt = Math.min(fadeIn, fadeOut);
+  if (amt<=0) return;
+  const pulse = 0.8+0.2*Math.sin(frame*0.4);
+  ctx.save();
+  const grad = ctx.createRadialGradient(W/2,H*0.5,H*0.28, W/2,H*0.5,H*0.72);
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, hexToRgba(dashColor, 0.4*amt*pulse));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+}
+
 // ══ MAIN LOOP ══
 function gameLoop() {
   frame++;
@@ -1040,6 +1153,8 @@ function gameLoop() {
 
     if (invincible>0) invincible--;
     if (dashDuration>0) dashDuration--;
+    if (prevDashDuration>0 && dashDuration<=0) triggerDashEndEffect(); // 질주가 막 끝난 순간 감지
+    prevDashDuration = dashDuration;
     if (dashCooldown>0) dashCooldown--;
 
     // fever
@@ -1165,6 +1280,18 @@ function gameLoop() {
     else { dashBtn.classList.remove('cooldown'); document.getElementById('dashCoolText').textContent='질주'; }
     document.getElementById('dashChargeVal').textContent = Math.min(dashChargeCount, DASH_CHARGE_NEED);
     document.getElementById('dashChargeBox').classList.toggle('full', dashChargeCount >= DASH_CHARGE_NEED - 1);
+
+    const dtw = document.getElementById('dashTimerWrap');
+    if (dashDuration>0) {
+      dtw.style.display = 'block';
+      const pct = Math.max(0, Math.min(100, dashDuration/dashTotalDuration*100));
+      const bar = document.getElementById('dashTimerBar');
+      bar.style.width = pct+'%';
+      bar.style.background = dashColor;
+      document.getElementById('dashTimerLabel').style.color = dashColor;
+    } else {
+      dtw.style.display = 'none';
+    }
   }
 
   // ── DRAW ──
@@ -1172,6 +1299,7 @@ function gameLoop() {
   if (shakeDur>0) ctx.translate(shakeX,shakeY);
 
   drawBg();
+  drawDashSpeedLines();
   for (const o of obstacles) drawObstacle(o);
   for (const c of coins) drawCoin(c);
 
@@ -1198,6 +1326,7 @@ function gameLoop() {
       ctx.fillStyle = `rgba(255,200,0,${fa})`;
       ctx.fillRect(0,0,W,H);
     }
+    drawDashVignette();
   }
   ctx.restore();
   requestAnimationFrame(gameLoop);
