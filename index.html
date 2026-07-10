@@ -396,14 +396,28 @@ function initDecor() {
   const cfg = STAGES[stageIdx];
   const count = cfg.decor==='cloud' ? 8 : 10;
   for (let i=0;i<count;i++) {
-    decor.push({
-      x: Math.random()*W,
-      y: cfg.decor==='cloud' ? 60+Math.random()*220 : H*0.3+Math.random()*H*0.28,
-      w: 50+Math.random()*90,
-      h: 80+Math.random()*180,
-      speedMul: 0.25+Math.random()*0.5,
-      alpha: 0.25+Math.random()*0.35,
-    });
+    if (cfg.decor==='cloud') {
+      // 구름은 하늘을 천천히 떠다니는 느낌이 자연스러우므로 좌우 스크롤 유지
+      decor.push({
+        x: Math.random()*W,
+        y: 60+Math.random()*220,
+        w: 50+Math.random()*90,
+        h: 80+Math.random()*180,
+        speedMul: 0.25+Math.random()*0.5,
+        alpha: 0.25+Math.random()*0.35,
+      });
+    } else {
+      // 건물/나무/터널기둥: 화면 중앙(먼 곳)에서 작게 시작해 좌우 바깥으로 커지며 다가오는
+      // "전진(원근) 스크롤" 방식으로 통일 (도로 바닥 점선과 같은 방향의 움직임)
+      decor.push({
+        side: Math.random()<0.5 ? -1 : 1,   // 왼쪽/오른쪽 중 어디로 빠질지
+        z: Math.random(),                    // 1=아주 멀리(중앙 근처) ~ 0=바로 앞(화면 밖으로 퇴장)
+        speedMul: 0.6+Math.random()*0.6,
+        baseW: 50+Math.random()*90,
+        baseH: 80+Math.random()*180,
+        alpha: 0.25+Math.random()*0.35,
+      });
+    }
   }
 }
 initDecor();
@@ -418,39 +432,61 @@ function drawBg() {
   ctx.fillStyle = sky;
   ctx.fillRect(0,0,W,H);
 
-  // Decorations (parallax)
+  // Decorations
   for (const d of decor) {
-    d.x -= speed*d.speedMul;
-    if (d.x + d.w < -20) { d.x = W + 20 + Math.random()*60; }
+    if (cfg.decor==='cloud') {
+      // 구름: 기존과 동일하게 좌우로 천천히 흘러가는 하늘 배경
+      d.x -= speed*d.speedMul;
+      if (d.x + d.w < -20) { d.x = W + 20 + Math.random()*60; }
+      ctx.save();
+      ctx.globalAlpha = d.alpha;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y, d.w*0.5, d.w*0.22, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.restore();
+      continue;
+    }
+
+    // 전진 원근 스크롤: z(거리)가 매 프레임 줄어들며 화면 중앙 부근에서 시작해
+    // 옆으로 벌어지고 커지면서 마치 앞으로 달려나가며 옆을 스쳐 지나가는 것처럼 보이게 한다.
+    d.z -= speed * 0.0009 * d.speedMul;
+    if (d.z <= 0) {
+      d.z = 1;
+      d.side = Math.random() < 0.5 ? -1 : 1;
+      d.baseW = 50 + Math.random()*90;
+      d.baseH = 80 + Math.random()*180;
+      d.alpha = 0.25 + Math.random()*0.35;
+    }
+    const scale = 0.35 + (1 - d.z) * 1.5;             // 멀수록 작게(0.35배), 가까울수록 크게(1.85배)
+    const dw = d.baseW * scale;
+    const dh = d.baseH * scale;
+    const dx = W/2 + d.side * (24 + (1 - d.z) * (W*0.85)) - dw/2; // 중앙에서 바깥쪽으로 이동
+
     ctx.save();
     ctx.globalAlpha = d.alpha;
     if (cfg.decor==='building' || cfg.decor==='building2') {
       ctx.fillStyle = cfg.decor==='building2' ? '#151a26' : '#1c2233';
-      ctx.fillRect(d.x, GROUND_Y-d.h, d.w, d.h);
+      ctx.fillRect(dx, GROUND_Y-dh, dw, dh);
       ctx.fillStyle = 'rgba(255,220,140,0.5)';
-      for (let wy=GROUND_Y-d.h+14; wy<GROUND_Y-10; wy+=22) {
-        for (let wx=d.x+8; wx<d.x+d.w-8; wx+=18) {
+      for (let wy=GROUND_Y-dh+14; wy<GROUND_Y-10; wy+=22) {
+        for (let wx=dx+8; wx<dx+dw-8; wx+=18) {
           if ((Math.floor(wx+wy)%3)===0) ctx.fillRect(wx,wy,7,10);
         }
       }
     } else if (cfg.decor==='tree') {
       ctx.fillStyle = '#1e4a24';
       ctx.beginPath();
-      ctx.ellipse(d.x+d.w/2, GROUND_Y-d.h*0.75, d.w*0.5, d.h*0.4, 0, 0, Math.PI*2);
+      ctx.ellipse(dx+dw/2, GROUND_Y-dh*0.75, dw*0.5, dh*0.4, 0, 0, Math.PI*2);
       ctx.fill();
       ctx.fillStyle = '#3d2412';
-      ctx.fillRect(d.x+d.w/2-6, GROUND_Y-d.h*0.35, 12, d.h*0.35);
+      ctx.fillRect(dx+dw/2-6, GROUND_Y-dh*0.35, 12, dh*0.35);
     } else if (cfg.decor==='tunnel') {
       ctx.fillStyle = '#0d1018';
-      ctx.fillRect(d.x, H*0.15, 10, H*0.65);
+      ctx.fillRect(dx, H*0.15, 10*scale, H*0.65);
       ctx.fillStyle = '#ffd25a';
       ctx.globalAlpha = 0.5;
-      ctx.beginPath(); ctx.arc(d.x+5, H*0.18, 6, 0, Math.PI*2); ctx.fill();
-    } else if (cfg.decor==='cloud') {
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.ellipse(d.x, d.y, d.w*0.5, d.w*0.22, 0, 0, Math.PI*2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(dx+5, H*0.18, 6*scale, 0, Math.PI*2); ctx.fill();
     }
     ctx.restore();
   }
